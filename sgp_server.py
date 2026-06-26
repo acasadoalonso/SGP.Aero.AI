@@ -10,8 +10,10 @@ A thin wrapper over sgp_api.py. Exposes six read-only tools:
   - get_task_length
   - get_day_results
   - get_total_results
+  - validate_ranking_id
 
 Served over HTTP (streamable-http transport). Launch with run.sh.
+26-June-2026 La Toja, Galicia, Spain
 """
 
 from mcp.server.fastmcp import FastMCP
@@ -46,7 +48,7 @@ def get_pilots(comp_id: int) -> list[dict]:
     """List the pilots entered in an SGP competition.
 
     Returns name, competition number, country, aircraft, registration,
-    flarm id, and ranking id for each pilot.
+    flarm id, and IGC ranking-id for each pilot.
     """
     return sgp_api.fetch_pilots(comp_id)
 
@@ -102,6 +104,19 @@ def get_total_results(comp_id: int, day_id: int) -> dict:
     name, country, and competition number.
     """
     return sgp_api.fetch_total_results(comp_id, day_id)
+
+
+@mcp.tool()
+def validate_ranking_id(ranking_id: str) -> dict:
+    """Validate a pilot's FAI ranking-list id against the FAI ranking list.
+
+    IGC `ranking_id` is the value carried by each pilot in `get_pilots` (the FAI
+    ranking-list id). Looks it up via the FAI ranking-list REST API and returns
+    `valid` (whether a matching entry exists) plus, when found, the pilot's
+    name, nationality, ranking points, and ranking position.a
+    It can be used to match in a competition that is a valid and correct ID for each pilot
+    """
+    return sgp_api.fetch_ranking_pilot(ranking_id)
 
 
 if __name__ == "__main__":

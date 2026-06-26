@@ -113,3 +113,39 @@ def test_decode_total_results():
 def test_decode_results_missing():
     assert "error" in sgp_api.decode_day_results({})
     assert "error" in sgp_api.decode_total_results({})
+
+
+def test_decode_ranking_pilot_valid():
+    out = sgp_api.decode_ranking_pilot(_load("ranking_pilot_2834.json"), 2834)
+    assert out["valid"] is True
+    assert out["ranking_id"] == "2834"
+    assert out["pilot_id"] == 2834
+    assert out["name"] == "Lars Rune Bjørnevik"
+    assert out["nationality"] == "NOR"
+    assert out["ranking_points"] == 0
+    assert out["ranking_position"] == 0
+
+
+def test_decode_ranking_pilot_object_name_shape():
+    # Older (PDF) shape nests records under "object_name"; decoder handles it too.
+    payload = {"object_name": [{"pilotid": "2834", "firstname": "Lars Rune",
+                                "surname": "Bjørnevik", "nationality": "NOR"}]}
+    out = sgp_api.decode_ranking_pilot(payload, 2834)
+    assert out["valid"] is True
+    assert out["name"] == "Lars Rune Bjørnevik"
+
+
+def test_decode_ranking_pilot_not_found():
+    # FAI returns {"data": null} (parsed to None for the value) for an unknown id.
+    for payload in (None, {}, {"data": None}, {"object_name": []}):
+        out = sgp_api.decode_ranking_pilot(payload, 999999)
+        assert out["valid"] is False
+        assert out["ranking_id"] == "999999"
+        assert "message" in out
+
+
+def test_decode_ranking_pilot_id_mismatch():
+    # A returned record whose pilotid differs from the request is not a match.
+    out = sgp_api.decode_ranking_pilot(_load("ranking_pilot_2834.json"), 1)
+    assert out["valid"] is False
+    assert out["pilot_id"] == 2834

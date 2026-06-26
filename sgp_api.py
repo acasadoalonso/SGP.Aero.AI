@@ -10,22 +10,34 @@ Endpoints:
   - https://data.crosscountry.aero/public/get/events  -> competition list
   - https://www.crosscountry.aero/c/sgp/rest/comp/{id} -> competition + pilots + days
   - https://www.crosscountry.aero/c/sgp/rest/day/{id}/{dayid} -> task + waypoints
+  - https://rankingdata.fai.org/rest/api/rlpilot?id={id}       -> FAI ranking entry
 
 The decode_* functions are pure (raw dict in, clean dict out) so they can be
 unit-tested against saved fixtures without network access.
+
+26-june-2026 La Toja, Galicia Spain
 """
 
 import json
 
 import httpx
-
+# 
+# CC API URLs to use
+#
 EVENTS_URL = "https://data.crosscountry.aero/public/get/events"
 COMP_URL = "https://www.crosscountry.aero/c/sgp/rest/comp/{comp_id}"
 DAY_URL = "https://www.crosscountry.aero/c/sgp/rest/day/{comp_id}/{day_id}"
 
+# FAI ranking-list REST API (Ranking list REST API v.0.23). The public rlpilot
+# call resolves one pilot by their ranking-list id; used to validate the
+# ranking_id carried by each SGP pilot.
+
+RANKING_PILOT_URL = "https://rankingdata.fai.org/rest/api/rlpilot?id={ranking_id}"
+
 USER_AGENT = "Mozilla/5.0 (compatible; sgp-mcp/1.0)"
 
-# Day types as documented in sgp2sws.py.
+# Day types as documented in sgp2sws.py.a
+
 DAY_TYPES = {1: "Race", 2: "Practice", 3: "Cancelled", 4: "Rest", 9: "Other"}
 
 # Results status, from the day payload's scoring object ('r.u').
@@ -262,6 +274,44 @@ def decode_total_results(day_obj: dict, pilots_by_id: dict | None = None) -> dic
     }
 
 
+def decode_ranking_pilot(payload: dict | None, requested_id) -> dict:
+    """Validate an rlpilot?id= response against the requested ranking-list id.
+
+    For a known id the live API returns {"data": [ {...} ]}; for an unknown one
+    "data" is null. Returns a flat verdict: `valid` plus the pilot's name,
+    nationality, and ranking points/position when found.
+    """
+    requested = str(requested_id)
+    payload = payload if isinstance(payload, dict) else {}
+    data = payload.get("data")
+    if isinstance(data, list):
+        records = data
+    elif isinstance(data, dict):
+        records = data.get("object_name") or []
+    else:
+        records = payload.get("object_name") or []
+    rec = records[0] if records else None
+
+    if not rec:
+        return {
+            "ranking_id": requested,
+            "valid": False,
+            "message": "No FAI ranking-list entry found for this id.",
+        }
+
+    first = rec.get("firstname") or ""
+    surname = rec.get("surname") or ""
+    return {
+        "ranking_id": requested,
+        "valid": str(rec.get("pilotid")) == requested,
+        "pilot_id": rec.get("pilotid"),
+        "name": f"{first} {surname}".strip(),
+        "nationality": rec.get("nationality"),
+        "ranking_points": rec.get("rankingpts"),
+        "ranking_position": rec.get("rankingpos"),
+    }
+
+
 # --------------------------------------------------------------------------- #
 # Fetch wrappers (network + decode)
 # --------------------------------------------------------------------------- #
@@ -313,3 +363,8 @@ def fetch_day_results(comp_id: int, day_id: int) -> dict:
 def fetch_total_results(comp_id: int, day_id: int) -> dict:
     day_obj = _get_json(DAY_URL.format(comp_id=comp_id, day_id=day_id))
     return decode_total_results(day_obj, _pilots_by_id(comp_id))
+
+
+def fetch_ranking_pilot(ranking_id) -> dict:
+    payload = _get_json(RANKING_PILOT_URL.format(ranking_id=ranking_id))
+    return decode_ranking_pilot(payload, ranking_id)
