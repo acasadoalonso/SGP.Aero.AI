@@ -94,7 +94,7 @@ Install: `pip install -r requirements.txt`
 | `SGP_MCP_TRANSPORT` | `http` |
 | `SGP_MCP_HOST` | `0.0.0.0` |
 | `SGP_MCP_PORT` | `9010` |
-| `SGP_MCP_PATH` | `/soaringspot` |
+| `SGP_MCP_PATH` | `/sgp` |
 | `SGP_API_URL` | `http://localhost:8000` |
 | `SGP_HTTP_TIMEOUT_SEC` | `60` |
 | `SGP_VERIFY_TLS` | `true` |
