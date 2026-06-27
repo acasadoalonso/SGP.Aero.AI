@@ -47,7 +47,9 @@ get_task_length(91, 1610) → length summary
 get_pilots(91)            → pilot roster
 get_day_results(91, 1610) → daily scoring
 get_total_results(91, 1610) → cumulative standings
-download_sgp_file(91, 1610, "YO") → pilot YO's IGC flight log
+download_sgp_file(91, 1610, "YO") → pilot YO's IGC flight log (returned as text)
+download_sgp_file(91, 1610, "YO", save_dir="/tmp/igc")
+  → also writes /tmp/igc/YO.8AQ.igc and returns its saved_path
 ```
 
 ## Architecture
