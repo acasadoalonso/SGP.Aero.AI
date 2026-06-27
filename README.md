@@ -55,7 +55,7 @@ download_sgp_file(91, 1610, "YO") → pilot YO's IGC flight log
 ```
 sgp_server.py          ← MCP tools (FastMCP, HTTP transport)
 sgp_api.py             ← API fetchers + pure decoders (single-letter keys → readable dicts)
-tests/                 ← 15 unit tests against JSON fixtures (no network needed)
+tests/                 ← 19 unit tests against JSON fixtures (no network needed)
 tests/fixtures/        ← Saved API responses for offline testing
 ```
 
@@ -109,7 +109,7 @@ cd tests
 python -m pytest test_sgp_api.py -v
 ```
 
-15 tests covering all decoder functions against saved fixtures. No network required.
+19 tests covering all decoder functions against saved fixtures. No network required.
 
 ## Project structure
 
@@ -124,7 +124,7 @@ SGP/
 ├── dockerrun.sh         # Docker run helper
 ├── addmcp.sh            # MCP config helper
 ├── tests/
-│   ├── test_sgp_api.py  # 12 unit tests
+│   ├── test_sgp_api.py  # 19 unit tests
 │   └── fixtures/        # 4 JSON fixture files
 └── README.md            # This file
 ```

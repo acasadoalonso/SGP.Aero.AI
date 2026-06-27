@@ -8,6 +8,8 @@ single-letter keys are mapped to readable fields.
 import json
 import pathlib
 
+import pytest
+
 import sgp_api
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
@@ -139,6 +141,65 @@ def test_find_igc_file_ref_not_found():
     day = _load("day_91_1610.json")
     assert sgp_api.find_igc_file_ref(day, "ZZ") is None
     assert sgp_api.find_igc_file_ref({}, "YO") is None
+
+
+# fetch_igc_file is the function behind the download_sgp_file MCP tool. The day
+# payload and the IGC download are stubbed so these stay offline.
+IGC_TEXT = "ALXV8AQ_FLIGHT:1\r\nHFDTE240526\r\nB1234564550000N00850000EA0030000350\r\n"
+
+
+def _stub_download(monkeypatch, day_name="day_91_1610.json", igc=IGC_TEXT):
+    monkeypatch.setattr(sgp_api, "_get_json", lambda url: _load(day_name))
+    captured = {}
+
+    def fake_get_text(url):
+        captured["url"] = url
+        return igc
+
+    monkeypatch.setattr(sgp_api, "_get_text", fake_get_text)
+    return captured
+
+
+def test_fetch_igc_file(monkeypatch):
+    captured = _stub_download(monkeypatch)
+    out = sgp_api.fetch_igc_file(91, 1610, "YO")
+    # Resolved the pilot's download file number from the day's scoring list...
+    assert out["file_num"] == 38032
+    assert out["pilot_id"] == 1166
+    assert out["filename"] == "YO.8AQ.igc"
+    assert out["flight_recorder"] == "LXV-8AQ_"
+    # ...and hit the download endpoint for that file number.
+    assert captured["url"] == "https://www.crosscountry.aero/flight/download/sgp/38032"
+    assert out["content"] == IGC_TEXT
+    assert out["size_bytes"] == len(IGC_TEXT.encode("utf-8"))
+    # No save requested -> no path returned.
+    assert "saved_path" not in out
+
+
+def test_fetch_igc_file_saves_to_dir(monkeypatch, tmp_path):
+    _stub_download(monkeypatch)
+    out = sgp_api.fetch_igc_file(91, 1610, "YO", save_dir=str(tmp_path))
+    saved = tmp_path / "YO.8AQ.igc"
+    assert out["saved_path"] == str(saved)
+    # Compare bytes: read_text() would apply universal-newline translation.
+    assert saved.read_bytes() == IGC_TEXT.encode("utf-8")
+
+
+def test_fetch_igc_file_pilot_not_found(monkeypatch):
+    _stub_download(monkeypatch)
+    with pytest.raises(ValueError, match="competition number 'ZZ'"):
+        sgp_api.fetch_igc_file(91, 1610, "ZZ")
+
+
+def test_fetch_igc_file_no_file(monkeypatch):
+    # A scored pilot whose download file number is 0 has no IGC available.
+    day = _load("day_91_1610.json")
+    day["r"]["s"][0]["j"] = "NF"
+    day["r"]["s"][0]["w"] = 0
+    monkeypatch.setattr(sgp_api, "_get_json", lambda url: day)
+    monkeypatch.setattr(sgp_api, "_get_text", lambda url: pytest.fail("should not download"))
+    with pytest.raises(ValueError, match="file number is 0"):
+        sgp_api.fetch_igc_file(91, 1610, "NF")
 
 
 def test_decode_ranking_pilot_valid():
