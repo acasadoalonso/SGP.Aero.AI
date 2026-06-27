@@ -32,6 +32,7 @@ The server listens on **`http://0.0.0.0:9010/sgp`** (streamable HTTP transport).
 | `get_day_results(comp_id, day_id)` | Get individual daily results (rank, points, speed, distance, task time, IGC file) |
 | `get_total_results(comp_id, day_id)` | Get cumulative standings as of a given day (total points, ranked) |
 | `validate_ranking_id(ranking_id)` | Validate a pilot's FAI ranking-list ID against the FAI ranking API |
+| `download_sgp_file(comp_id, day_id, competition_number, save_dir=None)` | Download a pilot's raw IGC flight log for a given day from crosscountry.aero (returns filename + IGC text; optionally writes it to `save_dir`) |
 
 ### Typical workflow
 
@@ -46,6 +47,7 @@ get_task_length(91, 1610) → length summary
 get_pilots(91)            → pilot roster
 get_day_results(91, 1610) → daily scoring
 get_total_results(91, 1610) → cumulative standings
+download_sgp_file(91, 1610, "YO") → pilot YO's IGC flight log
 ```
 
 ## Architecture
@@ -53,12 +55,12 @@ get_total_results(91, 1610) → cumulative standings
 ```
 sgp_server.py          ← MCP tools (FastMCP, HTTP transport)
 sgp_api.py             ← API fetchers + pure decoders (single-letter keys → readable dicts)
-tests/                 ← 12 unit tests against JSON fixtures (no network needed)
+tests/                 ← 15 unit tests against JSON fixtures (no network needed)
 tests/fixtures/        ← Saved API responses for offline testing
 ```
 
-- **`sgp_server.py`** (122 lines) — Thin MCP server wrapping `sgp_api.py`. 8 tools exposed.
-- **`sgp_api.py`** (365 lines) — Core library. Pure `decode_*` functions (raw dict in, clean dict out) and `fetch_*` wrappers (HTTP + decode). Decodes the terse single-letter-key JSON from crosscountry.aero.
+- **`sgp_server.py`** — Thin MCP server wrapping `sgp_api.py`. 10 tools exposed.
+- **`sgp_api.py`** — Core library. Pure `decode_*`/`build_*`/`find_*` functions (raw dict in, clean dict out) and `fetch_*` wrappers (HTTP + decode). Decodes the terse single-letter-key JSON from crosscountry.aero.
 
 ### Data sources
 
@@ -68,6 +70,7 @@ tests/fixtures/        ← Saved API responses for offline testing
 | Competition + pilots + days | `https://www.crosscountry.aero/c/sgp/rest/comp/{id}` |
 | Task + results | `https://www.crosscountry.aero/c/sgp/rest/day/{comp_id}/{day_id}` |
 | FAI ranking validation | `https://rankingdata.fai.org/rest/api/rlpilot?id={id}` |
+| IGC flight-log download | `https://www.crosscountry.aero/flight/download/sgp/{file_num}` |
 
 ## Dependencies
 
@@ -106,7 +109,7 @@ cd tests
 python -m pytest test_sgp_api.py -v
 ```
 
-12 tests covering all decoder functions against saved fixtures. No network required.
+15 tests covering all decoder functions against saved fixtures. No network required.
 
 ## Project structure
 

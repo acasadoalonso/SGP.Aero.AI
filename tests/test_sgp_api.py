@@ -115,6 +115,32 @@ def test_decode_results_missing():
     assert "error" in sgp_api.decode_total_results({})
 
 
+def test_build_igc_filename():
+    # Characters 4-6 of the flight-recorder string form the middle component.
+    assert sgp_api.build_igc_filename("YO", "LXV-8AQ_") == "YO.8AQ.igc"
+    # Missing/short flight-recorder string drops the middle component.
+    assert sgp_api.build_igc_filename("YO", "") == "YO.igc"
+    assert sgp_api.build_igc_filename("YO", None) == "YO.igc"
+
+
+def test_find_igc_file_ref():
+    day = _load("day_91_1610.json")
+    ref = sgp_api.find_igc_file_ref(day, "YO")
+    assert ref is not None
+    assert ref["file_num"] == 38032
+    assert ref["pilot_id"] == 1166
+    assert ref["flight_recorder"] == "LXV-8AQ_"
+    assert ref["filename"] == "YO.8AQ.igc"
+    # Comp-number match is case-insensitive.
+    assert sgp_api.find_igc_file_ref(day, "yo")["file_num"] == 38032
+
+
+def test_find_igc_file_ref_not_found():
+    day = _load("day_91_1610.json")
+    assert sgp_api.find_igc_file_ref(day, "ZZ") is None
+    assert sgp_api.find_igc_file_ref({}, "YO") is None
+
+
 def test_decode_ranking_pilot_valid():
     out = sgp_api.decode_ranking_pilot(_load("ranking_pilot_2834.json"), 2834)
     assert out["valid"] is True

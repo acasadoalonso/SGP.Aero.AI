@@ -1,7 +1,8 @@
 """
 sgp_server.py — MCP server exposing SGP (Sailplane Grand Prix) competition data.
 
-A thin wrapper over sgp_api.py. Exposes six read-only tools:
+A thin wrapper over sgp_api.py. Exposes ten tools (read-only, except
+download_sgp_file which can also save an IGC file to disk):
   - list_competitions
   - get_competition
   - get_pilots
@@ -11,6 +12,7 @@ A thin wrapper over sgp_api.py. Exposes six read-only tools:
   - get_day_results
   - get_total_results
   - validate_ranking_id
+  - download_sgp_file
 
 Served over HTTP (streamable-http transport). Launch with run.sh.
 26-June-2026 La Toja, Galicia, Spain
@@ -117,6 +119,23 @@ def validate_ranking_id(ranking_id: str) -> dict:
     It can be used to match in a competition that is a valid and correct ID for each pilot
     """
     return sgp_api.fetch_ranking_pilot(ranking_id)
+
+
+@mcp.tool()
+def download_sgp_file(comp_id: int, day_id: int, competition_number: str,
+                      save_dir: str | None = None) -> dict:
+    """Download a pilot's IGC flight log for a given competition day.
+
+    `day_id` comes from `get_competition`; `competition_number` is the pilot's
+    contest number (the `competition_number` field from `get_pilots` /
+    `get_day_results`, e.g. "YO"). Resolves the pilot's download file number from
+    that day's results and fetches the raw IGC from crosscountry.aero.
+
+    Returns the resolved `file_num`, the `filename` (`<comp_number>.<frq>.igc`),
+    `size_bytes`, and the IGC `content` as text. If `save_dir` is given, the IGC
+    is also written there and the path returned as `saved_path`.
+    """
+    return sgp_api.fetch_igc_file(comp_id, day_id, competition_number, save_dir)
 
 
 if __name__ == "__main__":

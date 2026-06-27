@@ -11,6 +11,7 @@ Endpoints:
   - https://www.crosscountry.aero/c/sgp/rest/comp/{id} -> competition + pilots + days
   - https://www.crosscountry.aero/c/sgp/rest/day/{id}/{dayid} -> task + waypoints
   - https://rankingdata.fai.org/rest/api/rlpilot?id={id}       -> FAI ranking entry
+  - https://www.crosscountry.aero/flight/download/sgp/{filenum} -> raw IGC flight log
 
 The decode_* functions are pure (raw dict in, clean dict out) so they can be
 unit-tested against saved fixtures without network access.
@@ -19,14 +20,20 @@ unit-tested against saved fixtures without network access.
 """
 
 import json
+import os
 
 import httpx
-# 
+#
 # CC API URLs to use
 #
 EVENTS_URL = "https://data.crosscountry.aero/public/get/events"
 COMP_URL = "https://www.crosscountry.aero/c/sgp/rest/comp/{comp_id}"
 DAY_URL = "https://www.crosscountry.aero/c/sgp/rest/day/{comp_id}/{day_id}"
+
+# IGC flight-log download. Each scored pilot in a day payload carries a file
+# number ('w'); this endpoint streams back that pilot's raw IGC log. Mirrors the
+# download logic in SWiface-PHP/sgp2filfuncs.py.
+DOWNLOAD_URL = "https://www.crosscountry.aero/flight/download/sgp/{file_num}"
 
 # FAI ranking-list REST API (Ranking list REST API v.0.23). The public rlpilot
 # call resolves one pilot by their ranking-list id; used to validate the
@@ -58,6 +65,20 @@ def _get_json(url: str) -> dict | list:
         return json.loads(text)
     except json.JSONDecodeError as exc:
         raise ValueError(f"Non-JSON response from {url}: {exc}") from exc
+
+
+def _get_text(url: str) -> str:
+    """GET a URL and return its body as text. Used for raw IGC downloads."""
+    resp = httpx.get(
+        url,
+        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+        timeout=30.0,
+        follow_redirects=True,
+    )
+    resp.raise_for_status()
+    if not resp.text.strip():
+        raise ValueError(f"Empty response from {url} (IGC file not available yet?).")
+    return resp.text
 
 
 # --------------------------------------------------------------------------- #
@@ -227,6 +248,7 @@ def decode_day_results(day_obj: dict, pilots_by_id: dict | None = None) -> dict:
             "start_time_millis": e.get("a"),
             "finish_time_millis": e.get("b"),
             "igc_file": e.get("g"),
+            "file_num": e.get("w"),
         })
 
     results.sort(key=lambda r: r["rank"] if isinstance(r["rank"], int) else 9999)
@@ -312,6 +334,42 @@ def decode_ranking_pilot(payload: dict | None, requested_id) -> dict:
     }
 
 
+def build_igc_filename(competition_number, flight_recorder: str | None) -> str:
+    """Build the IGC filename for a pilot, as SWiface-PHP/sgp2filfuncs.py does.
+
+    The flight-recorder string ('g', e.g. "LXV-8AQ_") contributes characters
+    4-6 as the file's middle component: "<comp_number>.<frq>.igc". When the
+    flight-recorder string is missing/short, the middle component is dropped.
+    """
+    fr = flight_recorder or ""
+    suffix = fr[4:7]
+    return f"{competition_number}.{suffix}.igc" if suffix else f"{competition_number}.igc"
+
+
+def find_igc_file_ref(day_obj: dict, competition_number) -> dict | None:
+    """Find a pilot's IGC download reference in a day payload, by comp number.
+
+    Scans the day's scoring list ('r.s') for the entry whose competition number
+    ('j') matches, and returns its download file number ('w', the value the
+    /flight/download/sgp/ endpoint expects), flight-recorder string, pilot id,
+    and the IGC filename. Returns None if no such pilot is scored that day.
+    """
+    scoring = day_obj.get("r") or {}
+    scores = scoring.get("s") or []
+    target = str(competition_number).strip().upper()
+    for e in scores:
+        if str(e.get("j") or "").strip().upper() == target:
+            fr = e.get("g") or ""
+            return {
+                "competition_number": e.get("j"),
+                "pilot_id": e.get("h"),
+                "file_num": e.get("w"),
+                "flight_recorder": fr,
+                "filename": build_igc_filename(e.get("j"), fr),
+            }
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # Fetch wrappers (network + decode)
 # --------------------------------------------------------------------------- #
@@ -368,3 +426,49 @@ def fetch_total_results(comp_id: int, day_id: int) -> dict:
 def fetch_ranking_pilot(ranking_id) -> dict:
     payload = _get_json(RANKING_PILOT_URL.format(ranking_id=ranking_id))
     return decode_ranking_pilot(payload, ranking_id)
+
+
+def fetch_igc_file(comp_id: int, day_id: int, competition_number,
+                   save_dir: str | None = None) -> dict:
+    """Download a pilot's IGC flight log for a given competition day.
+
+    Resolves the pilot's download file number from the day's scoring list (by
+    competition number), downloads the raw IGC from crosscountry.aero, and
+    returns metadata plus the IGC text. When `save_dir` is given, the IGC is
+    also written there as `<comp_number>.<frq>.igc` and the path is returned.
+    """
+    day_obj = _get_json(DAY_URL.format(comp_id=comp_id, day_id=day_id))
+    ref = find_igc_file_ref(day_obj, competition_number)
+    if ref is None:
+        raise ValueError(
+            f"No pilot with competition number {competition_number!r} scored on "
+            f"day {day_id} of competition {comp_id}."
+        )
+    file_num = ref["file_num"]
+    if not file_num:
+        raise ValueError(
+            f"No IGC file available for {competition_number!r} on day {day_id} "
+            f"(file number is 0)."
+        )
+
+    content = _get_text(DOWNLOAD_URL.format(file_num=file_num))
+    result = {
+        "comp_id": comp_id,
+        "day_id": day_id,
+        "competition_number": ref["competition_number"],
+        "pilot_id": ref["pilot_id"],
+        "file_num": file_num,
+        "flight_recorder": ref["flight_recorder"],
+        "filename": ref["filename"],
+        "size_bytes": len(content.encode("utf-8")),
+        "content": content,
+    }
+
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+        path = os.path.join(save_dir, ref["filename"])
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        result["saved_path"] = path
+
+    return result
